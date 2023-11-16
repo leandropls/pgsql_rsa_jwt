@@ -351,7 +351,9 @@ begin
         end if;
 
         -- Check the signature validity
-        if expected_signature <> decrypted_signature then
+        if expected_signature is null or
+           decrypted_signature is null or 
+           (expected_signature <> decrypted_signature) then
             continue;
         end if;
 
