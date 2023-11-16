@@ -242,8 +242,14 @@ declare
     max_msglength          integer; -- Maximum allowable message length derived from the key length.
     msglength              integer; -- Actual length of the message being verified.
 begin
+    -- Check if the token or keys are null; if so, return null (indicating validation failure).
+    if token is null or keys is null then
+        return null;
+    end if;
+
     -- Split the token into its segments (header, claims, signature)
     segments := string_to_array(token, '.');
+    assert segments is not null;
 
     if array_length(segments, 1) <> 3 then
         return null;
@@ -252,12 +258,15 @@ begin
     header_segment := segments[1];
     claims_segment := segments[2];
     crypto_segment := segments[3];
-    message := header_segment || '.' || claims_segment;
 
     -- Check if any of the segments are null; if so, return null (indicating validation failure).
     if header_segment is null or claims_segment is null or crypto_segment is null then
         return null;
     end if;
+
+    -- Construct the message to be hashed and compared against the decrypted signature.
+    message := header_segment || '.' || claims_segment;
+    assert message is not null;
 
     -- Decode the signature segment from the JWT.
     begin
@@ -268,6 +277,9 @@ begin
             return null;
     end;
 
+    assert signature is not null;
+    assert signature_length is not null;
+
     -- Attempt to decode and parse the header segment into JSONB; return null on failure.
     begin
         header := convert_from(urlsafe_b64decode(header_segment), 'UTF-8')::jsonb;
@@ -276,6 +288,8 @@ begin
             return null;
     end;
 
+    assert header is not null;
+
     -- Attempt to decode and parse the claims segment into JSONB; return null on failure.
     begin
         claims := convert_from(urlsafe_b64decode(claims_segment), 'UTF-8')::jsonb;
@@ -283,6 +297,8 @@ begin
         when others then
             return null;
     end;
+
+    assert claims is not null;
 
     -- Fetch algorithm from header and return null if it is not present.
     alg := header ->> 'alg';
@@ -308,6 +324,10 @@ begin
         return null;
     end if;
 
+    assert hash_asn1_header is not null;
+    assert hash_algorithm is not null;
+    assert keylength is not null;
+
     -- Check if the crypto segment length matches the keylength
     if signature_length <> keylength then
         return null;
@@ -315,21 +335,26 @@ begin
 
     -- Construct the cleartext to be hashed and compared against the decrypted signature.
     cleartext := hash_asn1_header || digest(message, hash_algorithm);
+    assert cleartext is not null;
 
     -- Calculate the padding and expected signature to validate against the decrypted signature.
     max_msglength := keylength - 11; -- PKCS#1 padding for RSA involves at least 11 bytes of overhead.
+    assert max_msglength is not null;
 
     -- Get the length of the hashed content.
     msglength := octet_length(cleartext);
+    assert msglength is not null;
 
     -- Calculate the padding length based on the key size and message length.
     padding_length := keylength - msglength - 3;
+    assert padding_length is not null;
 
     -- Construct the expected_signature for comparison against the decrypted signature.
     expected_signature := '\x01'::bytea ||
                           ('\x' || repeat('ff', padding_length))::bytea ||
                           '\x00'::bytea ||
                           cleartext;
+    assert expected_signature is not null;
 
     -- Loop through each key provided and try to validate the JWT signature.
     for keyrecord in
@@ -338,12 +363,15 @@ begin
         where  jsonb_array_elements ->> 'alg' = alg loop
         -- Extract the modulus and convert it to numeric.
         n := (keyrecord ->> 'n')::numeric;
+        assert n is not null;
 
         -- Extract the exponent and convert it to integer.
         e := (keyrecord ->> 'e')::int;
+        assert e is not null;
 
         -- Decrypt the signature using the key.
         decrypted_signature := decrypt_rsa(signature, e, n);
+        assert decrypted_signature is not null;
 
         -- Check if the decrypted signature contains the appropriate SHA ASN.1 header.
         if position(hash_asn1_header in decrypted_signature) = 0 then
@@ -351,9 +379,7 @@ begin
         end if;
 
         -- Check the signature validity
-        if expected_signature is null or
-           decrypted_signature is null or
-           (expected_signature <> decrypted_signature) then
+        if expected_signature <> decrypted_signature then
             continue;
         end if;
 
