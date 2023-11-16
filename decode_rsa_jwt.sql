@@ -294,14 +294,22 @@ begin
     if alg = 'RS256' then
         hash_asn1_header := sha_256_asn1;
         hash_algorithm := 'sha256';
+        keylength := 256;
     elsif alg = 'RS384' then
         hash_asn1_header := sha_384_asn1;
         hash_algorithm := 'sha384';
+        keylength := 384;
     elsif alg = 'RS512' then
         hash_asn1_header := sha_512_asn1;
         hash_algorithm := 'sha512';
+        keylength := 512;
     else
         -- If the algorithm is not supported, return null (indicating validation failure).
+        return null;
+    end if;
+
+    -- Check if the crypto segment length matches the keylength
+    if signature_length <> keylength then
         return null;
     end if;
 
@@ -334,14 +342,6 @@ begin
         -- Extract the exponent and convert it to integer.
         e := (keyrecord ->> 'e')::int;
 
-        -- Determine the byte length of the key.
-        keylength := ceil(bit_length(n)::float / 8);
-
-        -- Check if the crypto segment length matches the keylength
-        if signature_length <> keylength then
-            continue;
-        end if;
-
         -- Decrypt the signature using the key.
         decrypted_signature := decrypt_rsa(signature, e, n);
 
@@ -352,7 +352,7 @@ begin
 
         -- Check the signature validity
         if expected_signature is null or
-           decrypted_signature is null or 
+           decrypted_signature is null or
            (expected_signature <> decrypted_signature) then
             continue;
         end if;
