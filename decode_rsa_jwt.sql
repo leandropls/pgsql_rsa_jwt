@@ -373,11 +373,6 @@ begin
         decrypted_signature := decrypt_rsa(signature, e, n);
         assert decrypted_signature is not null;
 
-        -- Check if the decrypted signature contains the appropriate SHA ASN.1 header.
-        if position(hash_asn1_header in decrypted_signature) = 0 then
-            continue;
-        end if;
-
         -- Check the signature validity
         if expected_signature <> decrypted_signature then
             continue;
