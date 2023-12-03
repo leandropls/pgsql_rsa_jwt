@@ -22,13 +22,15 @@
  * SOFTWARE.
  */
 
+create schema if not exists jwt;
+
 /**
  * Converts bytea (binary string) data to a numeric representation.
  *
  * @param {bytea} bytea_data - The bytea binary string data to be converted into a numeric representation.
  * @returns {numeric} - The numeric representation of the input binary string data.
  */
-create or replace function bytea_to_numeric(bytea_data bytea)
+create or replace function jwt.bytea_to_numeric(bytea_data bytea)
     returns numeric as
 $$
 declare
@@ -47,7 +49,9 @@ begin
     -- Return the numeric representation of the bytea data.
     return result;
 end;
-$$ language plpgsql immutable strict;
+$$ language plpgsql
+   immutable
+   set search_path = jwt, public, pg_temp;
 
 
 /**
@@ -56,7 +60,7 @@ $$ language plpgsql immutable strict;
  * @param {numeric} value - The numeric value to be converted into a bytea binary string representation.
  * @returns {bytea} - The bytea representation of the input numeric value.
  */
-create or replace function numeric_to_bytea(value numeric)
+create or replace function jwt.numeric_to_bytea(value numeric)
     returns bytea as
 $$
 declare
@@ -78,7 +82,9 @@ begin
     -- Return the bytea representation of the numeric value.
     return bytea_value;
 end;
-$$ language plpgsql immutable strict;
+$$ language plpgsql
+   immutable
+   set search_path = jwt, public, pg_temp;
 
 
 /**
@@ -87,7 +93,7 @@ $$ language plpgsql immutable strict;
  * @param {text} segment - The URL-safe base64-encoded string to be decoded into binary data.
  * @returns {bytea} - The bytea (binary) value representing the decoded output from the input base64-encoded string.
  */
-create or replace function urlsafe_b64decode(segment text)
+create or replace function jwt.urlsafe_b64decode(segment text)
     returns bytea as
 $$
 begin
@@ -100,7 +106,9 @@ begin
     -- Return the binary data decoded from the base64 string.
     return decode(segment, 'base64');
 end;
-$$ language plpgsql immutable;
+$$ language plpgsql
+   immutable
+   set search_path = jwt, public, pg_temp;
 
 /**
  * Converts a JSON Web Key (JWK) contained in a JWT to a key object.
@@ -108,7 +116,7 @@ $$ language plpgsql immutable;
  * @param {jsonb} jwt - The JSON Web Token containing the JWK to be converted.
  * @returns {jsonb} - A key object derived from the JWK within the JWT, in JSONB format.
  */
-create or replace function jwk_to_key(jwt jsonb)
+create or replace function jwt.jwk_to_key(jwt jsonb)
     returns jsonb as
 $$
 begin
@@ -118,7 +126,9 @@ begin
         'n', bytea_to_numeric(urlsafe_b64decode(jwt ->> 'n'))
     );
 end;
-$$ language plpgsql immutable strict;
+$$ language sql
+   immutable
+   set search_path = jwt, public, pg_temp;
 
 /**
  * Calculates the bit length of a numeric value (how many bits are necessary to represent the number).
@@ -126,7 +136,7 @@ $$ language plpgsql immutable strict;
  * @param {numeric} num - The numeric value for which the bit length is to be calculated.
  * @returns {int} - The number of bits required to represent the input numeric value.
  */
-create or replace function bit_length(num numeric)
+create or replace function jwt.bit_length(num numeric)
     returns int as
 $$
 begin
@@ -139,7 +149,9 @@ begin
     -- Logarithm base 2 of 'num', rounded down and incremented by 1.
     return floor(ln(num) / ln(2)) + 1;
 end;
-$$ language plpgsql immutable strict;
+$$ language plpgsql
+   immutable
+   set search_path = jwt, public, pg_temp;
 
 
 /**
@@ -150,7 +162,7 @@ $$ language plpgsql immutable strict;
  * @param {numeric} modulus - The modulus to be applied after the exponentiation.
  * @returns {numeric} - The result of (base ^ exponent) % modulus.
  */
-create or replace function mod_exp(base numeric, exponent int, modulus numeric)
+create or replace function jwt.mod_exp(base numeric, exponent int, modulus numeric)
     returns numeric as
 $$
 declare
@@ -176,7 +188,9 @@ begin
     -- Return the result of the modular exponentiation.
     return result;
 end;
-$$ language plpgsql immutable strict;
+$$ language plpgsql
+   immutable
+   set search_path = jwt, public, pg_temp;
 
 /**
  * Decrypts a bytea (binary string) value using RSA modular exponentiation.
@@ -186,7 +200,7 @@ $$ language plpgsql immutable strict;
  * @param {numeric} n - The modulus in the RSA key.
  * @returns {bytea} - The decrypted bytea (binary string) value.
  */
-create or replace function decrypt_rsa(value bytea, e integer, n numeric)
+create or replace function jwt.decrypt_rsa(value bytea, e integer, n numeric)
     returns bytea as
 $$
 begin
@@ -198,7 +212,9 @@ begin
         )
     );
 end;
-$$ language plpgsql immutable strict;
+$$ language plpgsql
+   immutable
+   set search_path = jwt, public, pg_temp;
 
 /**
  * Decodes a RSA-signed JWT (JSON Web Token) and verifies its signature against a JSON array of keys.
@@ -207,7 +223,6 @@ $$ language plpgsql immutable strict;
  * @param {jsonb} keys - The JSON array of keys provided in JSONB format, against which the JWT's signature will be verified.
  * @returns {jsonb} - The decoded JWT claims in JSONB format if the signature is valid, null otherwise.
  */
-create or replace function decode_rsa_jwt(token text, keys jsonb)
     returns jsonb as
 $$
 declare
@@ -222,6 +237,7 @@ declare
     claims_segment         text;
     crypto_segment         text;
     message                text;
+create or replace function jwt.decode_jwt(token text, keys jsonb)
     signature              bytea;   -- Binary representation of the signature part of the JWT.
     signature_length       integer; -- Length of the signature segment in bytes.
     header                 jsonb;   -- JSONB decoded from the header segment.
@@ -385,4 +401,6 @@ begin
     -- If none of the keys matched, return null (indicating validation failure).
     return null;
 end;
-$$ language plpgsql immutable strict;
+$$ language plpgsql
+   immutable
+   set search_path = jwt, public, pg_temp;
