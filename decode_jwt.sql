@@ -226,13 +226,14 @@ $$ language plpgsql
    set search_path = jwt, public, pg_temp;
 
 /**
- * Decodes a RSA-signed JWT (JSON Web Token) and verifies its signature against a JSON array of keys.
- *
- * @param {text} token - The RSA-signed JWT to be decoded and verified.
- * @param {jsonb} keys - The JSON array of keys provided in JSONB format, against which the JWT's signature will be verified.
- * @returns {jsonb} - The decoded JWT claims in JSONB format if the signature is valid, null otherwise.
+  * Calculates the expected signature for comparison against the decrypted signature for RSA.
+  *
+  * @param {text} message - The message to be hashed and compared against the decrypted signature.
+  * @param {text} hash_algorithm - The hash algorithm used for signing.
+  * @returns {bytea} - The signature that is expected after correctly padding the decrypted message.
  */
-    returns jsonb as
+create or replace function jwt.build_rsa_expected_signature(message text, hash_algorithm text)
+    returns bytea as
 $$
 declare
     -- ASN.1 headers for different SHA hash algorithms.
@@ -241,31 +242,131 @@ declare
     sha_512_asn1           bytea := '\x3051300d060960864801650304020305000440';
 
     -- Variables to store JWT segments.
-    segments               text[];
-    header_segment         text;
-    claims_segment         text;
-    crypto_segment         text;
-    message                text;
+    padding_length         integer; -- The length of the padding found in the decrypted signature.
+    expected_signature     bytea;   -- The signature that is expected after correctly padding the decrypted message.
+    hash_asn1_header       bytea;   -- The ASN.1 header for the hash algorithm used for signing.
+
+    -- Variables to process each key for verification.
+    keylength              integer; -- The length of the RSA key in bytes.
+    cleartext              bytea;   -- Bytea representation of the decrypted signature.
+    max_cleartext_length          integer; -- Maximum allowable message length derived from the key length.
+    cleartext_length              integer; -- Actual length of the message being verified.
+begin
+    -- Select the appropriate ASN.1 header based on the algorithm.
+    if hash_algorithm = 'sha256' then
+        hash_asn1_header := sha_256_asn1;
+        keylength := 256;
+    elsif hash_algorithm = 'sha384' then
+        hash_asn1_header := sha_384_asn1;
+        keylength := 384;
+    elsif hash_algorithm = 'sha512' then
+        hash_asn1_header := sha_512_asn1;
+        keylength := 512;
+    else
+        raise exception 'Unsupported hash algorithm: %', hash_algorithm;
+    end if;
+
+    -- Check if the ASN.1 header is not null.
+    assert hash_asn1_header is not null;
+
+    -- Construct the cleartext to be hashed and compared against the decrypted signature.
+    cleartext := hash_asn1_header || digest(message, hash_algorithm);
+    assert cleartext is not null;
+
+    -- Calculate the padding and expected signature to validate against the decrypted signature.
+    max_cleartext_length := keylength - 11; -- PKCS#1 padding for RSA involves at least 11 bytes of overhead.
+    assert max_cleartext_length is not null;
+
+    -- Get the length of the hashed content.
+    cleartext_length := octet_length(cleartext);
+    assert cleartext_length is not null;
+
+    -- Calculate the padding length based on the key size and message length.
+    padding_length := keylength - cleartext_length - 3;
+    assert padding_length is not null;
+    assert padding_length >= 0;
+
+    -- Construct the expected_signature for comparison against the decrypted signature.
+    expected_signature := '\x01'::bytea ||
+                          ('\x' || repeat('ff', padding_length))::bytea ||
+                          '\x00'::bytea ||
+                          cleartext;
+    assert expected_signature is not null;
+
+    return expected_signature;
+end;
+$$ language plpgsql
+   immutable
+   set search_path = jwt, public, pg_temp;
+
+/**
+ * Checks if the RSA signature of a JWT matches the expected signature.
+ *
+ * @param {bytea} expected_signature - The expected RSA signature.
+ * @param {bytea} signature - The RSA signature to validate.
+ * @param {numeric} n - The RSA modulus used for signature decryption.
+ * @param {integer} e - The RSA exponent used for signature decryption.
+ * @returns {bool} Returns true if the signature matches the expected signature, false otherwise.
+ */
+create or replace function jwt.rsa_signature_matches(
+    expected_signature bytea,
+    signature bytea,
+    n numeric,
+    e integer
+)
+    returns bool as
+$$
+declare
+    -- Variables to store JWT segments.
+    decrypted_signature    bytea;   -- The clear text signature derived after decrypting.
+begin
+    if expected_signature is null or signature is null or n is null or e is null then
+        return false;
+    end if;
+
+    -- Decrypt the signature using the key.
+    decrypted_signature := decrypt_rsa(signature, e, n);
+    if decrypted_signature is null then
+        return false;
+    end if;
+
+    -- Check the signature validity
+    return expected_signature = decrypted_signature;
+end;
+$$ language plpgsql
+   immutable
+   set search_path = jwt, public, pg_temp;
+
+/**
+ * Decodes a JWT and verifies its signature against a set of keys.
+ *
+ * @param {text} token - The JWT to be decoded and verified.
+ * @param {jsonb} keys - The JSON array of keys provided in JSONB format, against which the JWT's signature will be verified.
+ * @returns {jsonb} - The decoded JWT claims in JSONB format if the signature is valid, null otherwise.
+ */
+
 create or replace function jwt.decode_jwt(token text, keys jsonb)
+    returns jsonb as
+$$
+declare
+    -- Variables to store JWT segments.
+    segments               text[];  -- The segments of the JWT (header, claims, signature).
+    header_segment         text;    -- The header segment of the JWT.
+    claims_segment         text;    -- The claims segment of the JWT.
+    crypto_segment         text;    -- The signature segment of the JWT.
+    message                text;    -- The message to be hashed and compared against the decrypted signature.
     signature              bytea;   -- Binary representation of the signature part of the JWT.
     signature_length       integer; -- Length of the signature segment in bytes.
     header                 jsonb;   -- JSONB decoded from the header segment.
     claims                 jsonb;   -- JSONB decoded from the claims segment.
-    padding_length         integer; -- The length of the padding found in the decrypted signature.
     expected_signature     bytea;   -- The signature that is expected after correctly padding the decrypted message.
-    decrypted_signature    bytea;   -- The clear text signature derived after decrypting.
-    hash_asn1_header       bytea;   -- The ASN.1 header for the hash algorithm used for signing.
     hash_algorithm         text;    -- The hash algorithm used for signing.
+    signature_family       text;    -- The signature family used for signing.
 
     -- Variables to process each key for verification.
-    keyrecord              jsonb;   -- Temporary storage for an individual key record.
-    alg                    text;    -- Holds the algorithm used for signing.
-    n                      numeric; -- The modulus in the RSA key.
-    e                      integer; -- The exponent in the RSA key.
-    keylength              integer; -- The length of the RSA key in bytes.
-    cleartext              bytea;   -- Bytea representation of the decrypted signature.
-    max_msglength          integer; -- Maximum allowable message length derived from the key length.
-    msglength              integer; -- Actual length of the message being verified.
+    keyrecord              jsonb;       -- Temporary storage for an individual key record.
+    alg                    text;        -- Holds the algorithm used for signing.
+    keylength              integer;     -- The length of the RSA key in bytes.
 begin
     -- Check if the token or keys are null; if so, return null (indicating validation failure).
     if token is null or keys is null then
@@ -333,24 +434,37 @@ begin
 
     -- Select the appropriate ASN.1 header based on the algorithm.
     if alg = 'RS256' then
-        hash_asn1_header := sha_256_asn1;
         hash_algorithm := 'sha256';
         keylength := 256;
+        signature_family := 'RS';
     elsif alg = 'RS384' then
-        hash_asn1_header := sha_384_asn1;
         hash_algorithm := 'sha384';
         keylength := 384;
+        signature_family := 'RS';
     elsif alg = 'RS512' then
-        hash_asn1_header := sha_512_asn1;
         hash_algorithm := 'sha512';
         keylength := 512;
+        signature_family := 'RS';
+    elsif alg = 'HS256' then
+        hash_algorithm := 'sha256';
+        keylength := 32;
+        signature_family := 'HS';
+    elsif alg = 'HS384' then
+        hash_algorithm := 'sha384';
+        keylength := 48;
+        signature_family := 'HS';
+    elsif alg = 'HS512' then
+        hash_algorithm := 'sha512';
+        keylength := 64;
+        signature_family := 'HS';
     else
         -- If the algorithm is not supported, return null (indicating validation failure).
         return null;
     end if;
 
-    assert hash_asn1_header is not null;
+    -- Check if the hash algorithm, signature family, and key length are not null.
     assert hash_algorithm is not null;
+    assert signature_family is not null;
     assert keylength is not null;
 
     -- Check if the crypto segment length matches the keylength
@@ -358,54 +472,55 @@ begin
         return null;
     end if;
 
-    -- Construct the cleartext to be hashed and compared against the decrypted signature.
-    cleartext := hash_asn1_header || digest(message, hash_algorithm);
-    assert cleartext is not null;
+    if signature_family = 'RS' then
+        -- Calculate the expected signature for comparison against the decrypted signature.
+        expected_signature := build_rsa_expected_signature(message, hash_algorithm);
+        assert expected_signature is not null;
 
-    -- Calculate the padding and expected signature to validate against the decrypted signature.
-    max_msglength := keylength - 11; -- PKCS#1 padding for RSA involves at least 11 bytes of overhead.
-    assert max_msglength is not null;
-
-    -- Get the length of the hashed content.
-    msglength := octet_length(cleartext);
-    assert msglength is not null;
-
-    -- Calculate the padding length based on the key size and message length.
-    padding_length := keylength - msglength - 3;
-    assert padding_length is not null;
-
-    -- Construct the expected_signature for comparison against the decrypted signature.
-    expected_signature := '\x01'::bytea ||
-                          ('\x' || repeat('ff', padding_length))::bytea ||
-                          '\x00'::bytea ||
-                          cleartext;
-    assert expected_signature is not null;
-
-    -- Loop through each key provided and try to validate the JWT signature.
-    for keyrecord in
-        select jsonb_array_elements
-        from jsonb_array_elements(keys)
-        where  jsonb_array_elements ->> 'alg' = alg loop
-        -- Extract the modulus and convert it to numeric.
-        n := (keyrecord ->> 'n')::numeric;
-        assert n is not null;
-
-        -- Extract the exponent and convert it to integer.
-        e := (keyrecord ->> 'e')::int;
-        assert e is not null;
-
-        -- Decrypt the signature using the key.
-        decrypted_signature := decrypt_rsa(signature, e, n);
-        assert decrypted_signature is not null;
-
-        -- Check the signature validity
-        if expected_signature <> decrypted_signature then
-            continue;
-        end if;
-
-        -- The signature is valid, return the decoded JWT claims.
-        return claims;
-    end loop;
+        -- Loop through each key provided and try to validate the JWT signature.
+        for keyrecord in
+            select jsonb_array_elements
+            from jsonb_array_elements(keys)
+            where
+                jsonb_array_elements ->> 'alg' = alg
+                and (
+                    jsonb_array_elements ->> 'kid' is null
+                    or jsonb_array_elements ->> 'kid' = header ->> 'kid'
+                )
+        loop
+            if rsa_signature_matches(
+                expected_signature := expected_signature,
+                signature := signature,
+                n := (keyrecord ->> 'n')::numeric,
+                e := (keyrecord ->> 'e')::integer) then
+                return claims;
+            end if;
+        end loop;
+    elsif signature_family = 'HS' then
+        -- Loop through each key provided and try to validate the JWT signature.
+        for keyrecord in
+            select jsonb_array_elements
+            from jsonb_array_elements(keys)
+            where
+                jsonb_array_elements ->> 'alg' = alg
+                and (
+                    jsonb_array_elements ->> 'kid' is null
+                    or jsonb_array_elements ->> 'kid' = header ->> 'kid'
+                )
+        loop
+            expected_signature := hmac(
+                message::bytea, -- data
+                urlsafe_b64decode((keyrecord ->> 'k')::text), -- key
+                hash_algorithm -- type
+            );
+            if expected_signature = signature then
+                return claims;
+            end if;
+        end loop;
+    else
+        -- If the signature family is not supported, return null (indicating validation failure).
+        return null;
+    end if;
 
     -- If none of the keys matched, return null (indicating validation failure).
     return null;
