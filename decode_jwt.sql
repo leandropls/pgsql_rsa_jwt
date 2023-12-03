@@ -111,21 +111,30 @@ $$ language plpgsql
    set search_path = jwt, public, pg_temp;
 
 /**
- * Converts a JSON Web Key (JWK) contained in a JWT to a key object.
+ * Converts a JSON Web Key (JWK) to a key object.
  *
- * @param {jsonb} jwt - The JSON Web Token containing the JWK to be converted.
- * @returns {jsonb} - A key object derived from the JWK within the JWT, in JSONB format.
+ * @param {jsonb} jwk - The JWK to be converted.
+ * @returns {jsonb} - A key object derived from the JWK, in JSONB format.
  */
-create or replace function jwt.jwk_to_key(jwt jsonb)
+create or replace function jwt.jwk_to_key(jwk jsonb)
     returns jsonb as
 $$
-begin
-    return jsonb_build_object(
-        'alg', jwt ->> 'alg',
-        'e', bytea_to_numeric(urlsafe_b64decode(jwt ->> 'e')),
-        'n', bytea_to_numeric(urlsafe_b64decode(jwt ->> 'n'))
-    );
-end;
+    select
+        case
+            when jwk ->> 'kty' = 'RSA' then
+                jsonb_build_object(
+                    'alg', jwk ->> 'alg',
+                    'kid', jwk ->> 'kid',
+                    'e', bytea_to_numeric(urlsafe_b64decode(jwk ->> 'e')),
+                    'n', bytea_to_numeric(urlsafe_b64decode(jwk ->> 'n'))
+                )
+            when jwk ->> 'kty' = 'oct' then
+                jsonb_build_object(
+                    'alg', jwk ->> 'alg',
+                    'kid', jwk ->> 'kid',
+                    'k', jwk ->> 'k'
+                )
+        end;
 $$ language sql
    immutable
    set search_path = jwt, public, pg_temp;
