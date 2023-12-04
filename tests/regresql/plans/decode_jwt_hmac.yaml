@@ -1,0 +1,9 @@
+hs256:
+  jwk: '{"k": "yMfnKciXF47BRZrYNhzEQmNcRRie6KfEUIRg5cKaFQE", "alg": "HS256", "use": "sig", "kid": "e96f66ef-03e7-4c12-8ba0-d034683686fa", "kty": "oct"}'
+  token: eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiIsImtpZCI6ImU5NmY2NmVmLTAzZTctNGMxMi04YmEwLWQwMzQ2ODM2ODZmYSJ9.eyJhdWQiOiJwb3N0Z3Jlc3FsIn0.P9KiPoItBNmI0Dmpd-Z7gC8DavJK9S7tBQCmkzanGLg
+hs384:
+  jwk: '{"k": "K8cCx6UzsNbr3lZJz76vHZEx66Zsj3g2iQWRMGX0iDpgigQd6coMUX9waGMrcx8X", "alg": "HS384", "use": "sig", "kid": "9516be0e-8682-4697-ba66-4f0603fcdf9a", "kty": "oct"}'
+  token: eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzM4NCIsImtpZCI6Ijk1MTZiZTBlLTg2ODItNDY5Ny1iYTY2LTRmMDYwM2ZjZGY5YSJ9.eyJhdWQiOiJwb3N0Z3Jlc3FsIn0.DIU9arg2ZcAmgwvH3AFa2UMaZpZ_-WHIqQrxBJu2hnnqVK3aoyVHpMBpb5qyBGmz
+hs512:
+  jwk: '{"k": "t0DM6sEzA0InYX6HTdNP-h8AHTUKlMODQ460hucPwxWxgBCYqzo6qfatRFAjP7nLsnBzDvkeYwqPh88xLYATwg", "alg": "HS512", "use": "sig", "kid": "7caa2014-0655-44d4-8dbd-127ece5e6129", "kty": "oct"}'
+  token: eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzUxMiIsImtpZCI6IjdjYWEyMDE0LTA2NTUtNDRkNC04ZGJkLTEyN2VjZTVlNjEyOSJ9.eyJhdWQiOiJwb3N0Z3Jlc3FsIn0._-RGgVqjxmFFMRwJ8bzGDCouq26WKpeA7Im1TcRa4RZ-qa3QoVigvPVsXyeWla8ozAXqR5SyZCdiK2tRl7OEaw

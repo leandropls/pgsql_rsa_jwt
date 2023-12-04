@@ -1,0 +1,2 @@
+pguri: postgres://pgsqljwt@localhost/pgsqljwt?sslmode=disable
+root: .
