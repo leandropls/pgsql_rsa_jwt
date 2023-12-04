@@ -29,7 +29,7 @@ To install the RSA JWT decoding functions in your PostgreSQL database, follow th
 
 ## Usage Example
 
-To use the RSA JWT decoding functions, provide the JWT token and a JSON array of keys. The function `decode_rsa_jwt` returns the decoded JWT claims if the signature is valid, and null otherwise.
+To use the RSA JWT decoding functions, provide the JWT token and a JSON array of keys. The function `decode_jwt` returns the decoded JWT claims if the signature is valid, and null otherwise.
 
 Here's an example of how to use the function:
 
